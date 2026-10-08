@@ -1,257 +1,235 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js';
+import { MarchingCubes } from 'https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/objects/MarchingCubes.js';
 
 const app = document.querySelector('#app');
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0a0c0f);
-scene.fog = new THREE.Fog(0x0a0c0f, 10, 30);
 
-const camera = new THREE.PerspectiveCamera(28, innerWidth / innerHeight, 0.05, 100);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b0d10);
+scene.fog = new THREE.Fog(0x0b0d10, 9, 22);
+
+const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.05, 100);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.08;
+renderer.toneMappingExposure = 1.12;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 app.appendChild(renderer.domElement);
 
-scene.add(new THREE.HemisphereLight(0xe7e0d6, 0x151a20, 2.2));
-const key = new THREE.DirectionalLight(0xfff6ea, 3.2);
-key.position.set(4, 7, 5);
+scene.add(new THREE.HemisphereLight(0xf0e7dc, 0x171b21, 2.0));
+
+const key = new THREE.DirectionalLight(0xfff4e8, 3.8);
+key.position.set(4.5, 7.5, 5.5);
 key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
 scene.add(key);
-const rim = new THREE.DirectionalLight(0x9db4d0, 1.15);
-rim.position.set(-4, 4.5, -4);
-scene.add(rim);
+
+const fill = new THREE.DirectionalLight(0xc8d8ef, 1.15);
+fill.position.set(-4, 4, -5);
+scene.add(fill);
 
 const floor = new THREE.Mesh(
-  new THREE.CircleGeometry(6.5, 96),
-  new THREE.MeshStandardMaterial({ color: 0x12161b, roughness: 0.92 })
+  new THREE.CircleGeometry(7, 96),
+  new THREE.MeshStandardMaterial({ color: 0x11151a, roughness: 0.9 })
 );
 floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
 scene.add(floor);
 
-// STEP 1: ORIGINAL HUMAN BASE MESH
-// Built from deliberate anatomical cross-sections and clean polygon strips.
-// No sphere/capsule/marching-cubes body mash. This is an original character blockout
-// with human proportions intended to become the sculpt/retopo source.
+// STEP 1 — ORIGINAL HUMAN BASE
+// One continuous anatomical surface. This is deliberately a human base,
+// not a collection of visible primitives and not a kitbash.
+
+const FIELD_W = 2.25;
+const FIELD_H = 4.10;
+const FIELD_D = 1.25;
+const RES = 80;
 
 const skin = new THREE.MeshStandardMaterial({
-  color: 0xb7a293,
-  roughness: 0.72,
-  metalness: 0,
-  flatShading: false
+  color: 0xb8947f,
+  roughness: 0.68,
+  metalness: 0.0
 });
 
-const darkSkin = new THREE.MeshStandardMaterial({
-  color: 0x9b8477,
-  roughness: 0.78,
-  metalness: 0,
-  flatShading: false
-});
+const human = new MarchingCubes(RES, skin, false, false, 900000);
+human.isolation = 0;
+human.position.y = FIELD_H * 0.5;
+human.scale.set(FIELD_W, FIELD_H, FIELD_D);
+human.castShadow = true;
+human.receiveShadow = true;
+human.name = 'LIFE EMPIRE — Human Base Surface';
 
-function loft(rings, radial = 20, material = skin, name = 'loft') {
-  const positions = [];
-  const normals = [];
-  const uvs = [];
-  const indices = [];
+function ellipsoid(p, c, r) {
+  const x = (p.x - c.x) / r.x;
+  const y = (p.y - c.y) / r.y;
+  const z = (p.z - c.z) / r.z;
+  return Math.sqrt(x*x + y*y + z*z) - 1;
+}
 
-  for (let r = 0; r < rings.length; r++) {
-    const ring = rings[r];
-    for (let i = 0; i < radial; i++) {
-      const a = (i / radial) * Math.PI * 2;
-      const ca = Math.cos(a), sa = Math.sin(a);
-      positions.push(ring.x + ca * ring.rx, ring.y, ring.z + sa * ring.rz);
-      normals.push(ca, 0, sa);
-      uvs.push(i / radial, r / Math.max(1, rings.length - 1));
+function capsule(p, a, b, radius) {
+  const abx = b.x-a.x, aby = b.y-a.y, abz = b.z-a.z;
+  const apx = p.x-a.x, apy = p.y-a.y, apz = p.z-a.z;
+  const t = THREE.MathUtils.clamp((apx*abx + apy*aby + apz*abz) / (abx*abx + aby*aby + abz*abz), 0, 1);
+  const qx = apx-abx*t, qy = apy-aby*t, qz = apz-abz*t;
+  return Math.sqrt(qx*qx + qy*qy + qz*qz) - radius;
+}
+
+function smoothMin(a, b, k) {
+  const h = THREE.MathUtils.clamp(0.5 + 0.5 * (b-a) / k, 0, 1);
+  return THREE.MathUtils.lerp(b, a, h) - k*h*(1-h);
+}
+
+function smoothUnion(list, k = 0.09) {
+  let d = list[0];
+  for (let i = 1; i < list.length; i++) d = smoothMin(d, list[i], k);
+  return d;
+}
+
+function humanSdf(p) {
+  const parts = [];
+
+  // Feet and lower legs: long, believable adult proportions.
+  for (const s of [-1, 1]) {
+    parts.push(ellipsoid(p, {x:s*0.155, y:0.105, z:0.075}, {x:0.135, y:0.085, z:0.225}));
+    parts.push(capsule(p, {x:s*0.15,y:0.18,z:0}, {x:s*0.145,y:1.18,z:0}, 0.125));
+    parts.push(capsule(p, {x:s*0.145,y:1.05,z:0}, {x:s*0.19,y:2.00,z:0}, 0.165));
+    parts.push(ellipsoid(p, {x:s*0.145,y:1.14,z:0.015}, {x:0.14,y:0.15,z:0.14}));
+  }
+
+  // Pelvis and glute mass, kept restrained.
+  parts.push(ellipsoid(p, {x:0,y:1.66,z:0}, {x:0.36,y:0.39,z:0.235}));
+  parts.push(ellipsoid(p, {x:-0.16,y:1.67,z:-0.045}, {x:0.20,y:0.25,z:0.205}));
+  parts.push(ellipsoid(p, {x: 0.16,y:1.67,z:-0.045}, {x:0.20,y:0.25,z:0.205}));
+
+  // Abdomen/waist: narrower than ribcage and pelvis.
+  parts.push(capsule(p, {x:0,y:1.72,z:0}, {x:0,y:2.48,z:0}, 0.255));
+  parts.push(ellipsoid(p, {x:0,y:2.08,z:0.005}, {x:0.275,y:0.40,z:0.205}));
+
+  // Rib cage with a natural shoulder line, not exaggerated.
+  parts.push(ellipsoid(p, {x:0,y:2.50,z:0}, {x:0.43,y:0.54,z:0.235}));
+  parts.push(ellipsoid(p, {x:0,y:2.70,z:0.015}, {x:0.47,y:0.28,z:0.225}));
+
+  // Neck.
+  parts.push(capsule(p, {x:0,y:2.66,z:0}, {x:0,y:2.96,z:0}, 0.115));
+
+  // Head: cranial mass + jaw/chin for a recognizable human silhouette.
+  parts.push(ellipsoid(p, {x:0,y:3.25,z:0.005}, {x:0.205,y:0.275,z:0.185}));
+  parts.push(ellipsoid(p, {x:0,y:3.08,z:0.035}, {x:0.17,y:0.20,z:0.16}));
+  parts.push(ellipsoid(p, {x:0,y:3.00,z:0.075}, {x:0.115,y:0.12,z:0.115}));
+
+  // Shoulders and arms in a relaxed A-pose.
+  for (const s of [-1, 1]) {
+    parts.push(ellipsoid(p, {x:s*0.39,y:2.66,z:0}, {x:0.16,y:0.15,z:0.16}));
+    parts.push(capsule(p, {x:s*0.40,y:2.63,z:0}, {x:s*0.61,y:2.18,z:0.005}, 0.125));
+    parts.push(capsule(p, {x:s*0.61,y:2.18,z:0.005}, {x:s*0.68,y:1.60,z:0.01}, 0.105));
+    parts.push(ellipsoid(p, {x:s*0.68,y:1.49,z:0.01}, {x:0.09,y:0.14,z:0.075}));
+
+    // Thumb and finger mass are integrated into the hand silhouette.
+    parts.push(capsule(p, {x:s*0.68,y:1.48,z:0.0}, {x:s*0.72,y:1.29,z:0.015}, 0.052));
+    parts.push(capsule(p, {x:s*0.68,y:1.47,z:-0.04}, {x:s*0.70,y:1.28,z:-0.04}, 0.032));
+    parts.push(capsule(p, {x:s*0.68,y:1.47,z:0.04}, {x:s*0.70,y:1.29,z:0.04}, 0.032));
+  }
+
+  return smoothUnion(parts, 0.085);
+}
+
+const p = new THREE.Vector3();
+for (let z = 0; z < RES; z++) {
+  const fz = z / (RES - 1);
+  for (let y = 0; y < RES; y++) {
+    const fy = y / (RES - 1);
+    for (let x = 0; x < RES; x++) {
+      const fx = x / (RES - 1);
+      p.set(
+        (fx - 0.5) * FIELD_W,
+        fy * FIELD_H,
+        (fz - 0.5) * FIELD_D
+      );
+      human.field[x + RES * (y + RES * z)] = -humanSdf(p);
     }
   }
-
-  for (let r = 0; r < rings.length - 1; r++) {
-    for (let i = 0; i < radial; i++) {
-      const a = r * radial + i;
-      const b = r * radial + ((i + 1) % radial);
-      const c = (r + 1) * radial + ((i + 1) % radial);
-      const d = (r + 1) * radial + i;
-      indices.push(a, b, d, b, c, d);
-    }
-  }
-
-  const bottom = positions.length / 3;
-  const top = bottom + 1;
-  positions.push(rings[0].x, rings[0].y, rings[0].z);
-  positions.push(rings[rings.length - 1].x, rings[rings.length - 1].y, rings[rings.length - 1].z);
-  for (let i = 0; i < radial; i++) {
-    const n = (i + 1) % radial;
-    indices.push(bottom, n, i);
-    const t0 = (rings.length - 1) * radial + i;
-    const t1 = (rings.length - 1) * radial + n;
-    indices.push(top, t0, t1);
-  }
-
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  g.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  g.setIndex(indices);
-  g.computeVertexNormals();
-
-  const mesh = new THREE.Mesh(g, material);
-  mesh.name = name;
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  return mesh;
 }
+human.update();
+human.geometry.computeVertexNormals();
+scene.add(human);
 
-function tubeBetween(points, radii, radial = 14, material = skin, name = 'limb') {
-  return loft(points.map((p, i) => ({
-    x: p[0], y: p[1], z: p[2], rx: radii[i], rz: radii[i] * 0.9
-  })), radial, material, name);
-}
+// Facial definition sits on the continuous head surface.
+const eyeWhite = new THREE.MeshStandardMaterial({ color: 0xe8e5df, roughness: 0.35 });
+const irisMat = new THREE.MeshStandardMaterial({ color: 0x2a2018, roughness: 0.28 });
 
-function makeFoot(side) {
-  const s = side;
-  return loft([
-    {x:s*0.115,y:0.045,z:0.075,rx:0.105,rz:0.18},
-    {x:s*0.115,y:0.09,z:0.06,rx:0.10,rz:0.18},
-    {x:s*0.115,y:0.17,z:0.015,rx:0.09,rz:0.15},
-  ], 18, skin, `${side < 0 ? 'L' : 'R'} foot`);
-}
-
-function makeLeg(side) {
-  const s = side;
-  const thigh = tubeBetween([
-    [s*0.14,0.20,0.0],[s*0.145,0.55,0.0],[s*0.145,0.95,0.0],
-    [s*0.13,1.30,0.005],[s*0.125,1.48,0.0]
-  ], [0.135,0.155,0.17,0.145,0.12], 18, skin, `${s<0?'L':'R'} thigh`);
-  const calf = tubeBetween([
-    [s*0.125,1.46,0.0],[s*0.12,1.70,0.0],[s*0.11,2.02,0.0],
-    [s*0.10,2.32,0.0],[s*0.105,2.52,0.0]
-  ], [0.12,0.105,0.095,0.09,0.095], 18, skin, `${s<0?'L':'R'} lower leg`);
-  return [thigh, calf];
-}
-
-const torso = loft([
-  {x:0,y:1.35,z:0.0,rx:0.29,rz:0.19},{x:0,y:1.48,z:0.0,rx:0.31,rz:0.20},
-  {x:0,y:1.66,z:0.0,rx:0.255,rz:0.17},{x:0,y:1.86,z:0.0,rx:0.235,rz:0.165},
-  {x:0,y:2.10,z:0.0,rx:0.275,rz:0.185},{x:0,y:2.34,z:0.0,rx:0.325,rz:0.205},
-  {x:0,y:2.52,z:0.0,rx:0.37,rz:0.20},{x:0,y:2.62,z:0.0,rx:0.34,rz:0.18},
-], 24, skin, 'Torso');
-
-const pelvis = loft([
-  {x:0,y:1.34,z:-0.005,rx:0.30,rz:0.20},{x:0,y:1.43,z:-0.01,rx:0.32,rz:0.205},
-  {x:0,y:1.53,z:-0.005,rx:0.305,rz:0.20},{x:0,y:1.62,z:0.0,rx:0.27,rz:0.18},
-], 24, skin, 'Pelvis');
-
-const chest = loft([
-  {x:0,y:2.20,z:0.02,rx:0.29,rz:0.18},{x:0,y:2.33,z:0.04,rx:0.325,rz:0.20},
-  {x:0,y:2.45,z:0.05,rx:0.35,rz:0.205},{x:0,y:2.55,z:0.02,rx:0.355,rz:0.19},
-], 24, skin, 'Chest');
-
-const neck = loft([
-  {x:0,y:2.54,z:0.0,rx:0.12,rz:0.105},{x:0,y:2.68,z:0.0,rx:0.105,rz:0.095},
-  {x:0,y:2.82,z:0.0,rx:0.10,rz:0.09},
-], 18, skin, 'Neck');
-
-const head = loft([
-  {x:0,y:2.82,z:0.01,rx:0.13,rz:0.115},{x:0,y:2.93,z:0.02,rx:0.18,rz:0.15},
-  {x:0,y:3.10,z:0.025,rx:0.205,rz:0.165},{x:0,y:3.27,z:0.02,rx:0.19,rz:0.155},
-  {x:0,y:3.39,z:0.01,rx:0.145,rz:0.125},{x:0,y:3.46,z:0.035,rx:0.105,rz:0.095},
-], 24, skin, 'Head');
-
-const jaw = loft([
-  {x:0,y:2.89,z:0.09,rx:0.145,rz:0.10},{x:0,y:2.98,z:0.13,rx:0.17,rz:0.11},
-  {x:0,y:3.07,z:0.14,rx:0.16,rz:0.11},
-], 20, skin, 'Face');
-
-function makeArm(side) {
-  const s = side;
-  const upper = tubeBetween([
-    [s*0.33,2.52,0.0],[s*0.46,2.42,0.0],[s*0.58,2.20,0.0],[s*0.64,1.98,0.0]
-  ], [0.115,0.12,0.105,0.095], 18, skin, `${s<0?'L':'R'} upper arm`);
-  const fore = tubeBetween([
-    [s*0.64,1.98,0.0],[s*0.66,1.77,0.0],[s*0.66,1.56,0.0],[s*0.655,1.37,0.0]
-  ], [0.095,0.085,0.075,0.07], 18, skin, `${s<0?'L':'R'} forearm`);
-  const palm = loft([
-    {x:s*0.655,y:1.34,z:0,rx:0.065,rz:0.055},{x:s*0.655,y:1.25,z:0,rx:0.07,rz:0.06},
-    {x:s*0.655,y:1.18,z:0,rx:0.06,rz:0.05}
-  ], 16, skin, `${s<0?'L':'R'} hand`);
-  const fingers = [];
-  for (let i = 0; i < 4; i++) {
-    const z = (i - 1.5) * 0.022;
-    fingers.push(tubeBetween([
-      [s*0.655,1.20,z],[s*(0.655 + 0.012*(i-1.5)),1.09,z],
-      [s*(0.655 + 0.018*(i-1.5)),1.02,z]
-    ], [0.019,0.016,0.012], 8, skin, `${s<0?'L':'R'} finger ${i+1}`));
-  }
-  return [upper, fore, palm, ...fingers];
-}
-
-function makeShoulder(side) {
-  const s = side;
-  return loft([
-    {x:s*0.29,y:2.48,z:0,rx:0.13,rz:0.13},{x:s*0.39,y:2.47,z:0,rx:0.13,rz:0.125},
-    {x:s*0.47,y:2.42,z:0,rx:0.11,rz:0.11},
-  ], 18, skin, `${s<0?'Left':'Right'} shoulder`);
-}
-const shoulderL = makeShoulder(-1);
-const shoulderR = makeShoulder(1);
-
-function makeEar(side) {
-  const s = side;
-  return loft([
-    {x:s*0.17,y:3.12,z:0.0,rx:0.035,rz:0.025},{x:s*0.205,y:3.13,z:0.0,rx:0.04,rz:0.028},
-    {x:s*0.215,y:3.08,z:0.0,rx:0.028,rz:0.022}
-  ], 12, skin, `${s<0?'L':'R'} ear`);
-}
-
-const nose = loft([
-  {x:0,y:3.12,z:0.145,rx:0.055,rz:0.045},{x:0,y:3.08,z:0.19,rx:0.045,rz:0.04},
-  {x:0,y:3.04,z:0.205,rx:0.035,rz:0.032},
-], 12, darkSkin, 'Nose');
-
-const character = new THREE.Group();
-character.name = 'LIFE EMPIRE Original Human Base';
-character.add(
-  pelvis, torso, chest, neck, head, jaw, nose,
-  shoulderL, shoulderR, makeEar(-1), makeEar(1), makeFoot(-1), makeFoot(1)
-);
-for (const side of [-1,1]) {
-  for (const part of makeLeg(side)) character.add(part);
-  for (const part of makeArm(side)) character.add(part);
-}
-
-const eyeMat = new THREE.MeshStandardMaterial({color:0x17191c, roughness:0.35});
-for (const s of [-1,1]) {
-  const eye = new THREE.Mesh(new THREE.SphereGeometry(0.035, 16, 10), eyeMat);
-  eye.scale.set(1, 0.75, 0.55);
-  eye.position.set(s*0.075,3.15,0.16);
+function addEye(x) {
+  const eye = new THREE.Mesh(new THREE.SphereGeometry(0.042, 20, 14), eyeWhite);
+  eye.scale.set(1.15, 0.72, 0.52);
+  eye.position.set(x, 3.22, 0.165);
   eye.castShadow = true;
-  character.add(eye);
+  human.add(eye);
+
+  const iris = new THREE.Mesh(new THREE.SphereGeometry(0.021, 16, 12), irisMat);
+  iris.scale.set(1.0, 0.85, 0.45);
+  iris.position.set(x, 3.22, 0.201);
+  human.add(iris);
+}
+addEye(-0.073);
+addEye(0.073);
+
+const nose = new THREE.Mesh(
+  new THREE.SphereGeometry(0.045, 18, 14),
+  skin
+);
+nose.scale.set(0.72, 1.0, 1.55);
+nose.position.set(0, 3.11, 0.19);
+nose.castShadow = true;
+human.add(nose);
+
+for (const s of [-1, 1]) {
+  const ear = new THREE.Mesh(
+    new THREE.SphereGeometry(0.055, 16, 10),
+    skin
+  );
+  ear.scale.set(0.48, 1.35, 0.7);
+  ear.position.set(s*0.195, 3.16, 0.005);
+  ear.castShadow = true;
+  human.add(ear);
 }
 
-scene.add(character);
+// Clean hair cap makes the base immediately read as a game character.
+const hair = new THREE.Mesh(
+  new THREE.SphereGeometry(0.215, 32, 20, 0, Math.PI * 2, 0, Math.PI * 0.58),
+  new THREE.MeshStandardMaterial({ color: 0x211b18, roughness: 0.78 })
+);
+hair.scale.set(1.03, 0.90, 0.98);
+hair.position.set(0, 3.36, -0.01);
+hair.castShadow = true;
+human.add(hair);
+
+const browMat = new THREE.MeshStandardMaterial({ color: 0x1f1917, roughness: 0.7 });
+for (const s of [-1, 1]) {
+  const brow = new THREE.Mesh(new THREE.CapsuleGeometry(0.012, 0.065, 5, 10), browMat);
+  brow.rotation.z = s * 0.12;
+  brow.rotation.y = 0.12;
+  brow.position.set(s*0.073, 3.285, 0.17);
+  human.add(brow);
+}
 
 const shadow = new THREE.Mesh(
-  new THREE.CircleGeometry(0.62, 64),
-  new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.26 })
+  new THREE.CircleGeometry(0.72, 64),
+  new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28 })
 );
-shadow.rotation.x = -Math.PI/2;
-shadow.position.y = 0.006;
+shadow.rotation.x = -Math.PI / 2;
+shadow.position.y = 0.008;
 scene.add(shadow);
 
 let yaw = 0;
-let pitch = 0.02;
-let distance = 5.6;
+let pitch = 0.03;
+let distance = 5.15;
 let dragging = false;
 let lastX = 0;
 let lastY = 0;
 
 function updateCamera() {
-  const targetY = 1.72;
+  const targetY = 1.92;
   camera.position.set(
     Math.sin(yaw) * Math.cos(pitch) * distance,
     targetY + Math.sin(pitch) * distance,
@@ -261,27 +239,27 @@ function updateCamera() {
 }
 updateCamera();
 
-renderer.domElement.addEventListener('pointerdown', (e) => {
+renderer.domElement.addEventListener('pointerdown', e => {
   dragging = true;
   lastX = e.clientX;
   lastY = e.clientY;
   renderer.domElement.setPointerCapture(e.pointerId);
 });
-renderer.domElement.addEventListener('pointermove', (e) => {
+renderer.domElement.addEventListener('pointermove', e => {
   if (!dragging) return;
   yaw -= (e.clientX - lastX) * 0.006;
   pitch += (e.clientY - lastY) * 0.004;
-  pitch = Math.max(-0.32, Math.min(0.32, pitch));
+  pitch = Math.max(-0.34, Math.min(0.34, pitch));
   lastX = e.clientX;
   lastY = e.clientY;
   updateCamera();
 });
 renderer.domElement.addEventListener('pointerup', () => dragging = false);
 renderer.domElement.addEventListener('pointercancel', () => dragging = false);
-renderer.domElement.addEventListener('wheel', (e) => {
-  distance = Math.max(4.5, Math.min(7.0, distance + e.deltaY * 0.003));
+renderer.domElement.addEventListener('wheel', e => {
+  distance = THREE.MathUtils.clamp(distance + e.deltaY * 0.003, 4.2, 6.6);
   updateCamera();
-}, {passive:true});
+}, { passive: true });
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
