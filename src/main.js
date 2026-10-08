@@ -38,10 +38,10 @@ floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
 scene.add(floor);
 
-// STEP 1 — THE USER'S REAL HUMAN BASE
-// Same human-base-rigged.glb source, served through our own same-origin API
-// proxy so the browser is never blocked by a third-party CORS policy.
-const HUMAN_URL = '/api/human';
+// STEP 1 — REAL HUMAN BASE
+// Vercel rewrites /human-base.glb to the exact human-base-rigged.glb source.
+// The browser receives it from our own LIFE EMPIRE origin, avoiding CORS.
+const HUMAN_URL = '/human-base.glb';
 
 const status = document.createElement('div');
 status.textContent = 'LIFE EMPIRE  •  HUMAN BASE';
@@ -63,7 +63,6 @@ loading.style.cssText = `
 `;
 app.appendChild(loading);
 
-let human = null;
 let mixer = null;
 
 function showError(message) {
@@ -77,12 +76,10 @@ const loader = new GLTFLoader();
 loader.load(
   HUMAN_URL,
   gltf => {
-    human = gltf.scene;
+    const human = gltf.scene;
     human.name = 'LIFE EMPIRE — Real Human Base';
 
-    // The uploaded GLB is exported from Blender with the human standing
-    // along +Y in source coordinates. Rotate the existing skinned hierarchy
-    // as one object; never rebuild the body from primitives.
+    // Correct the source coordinate orientation as one intact skinned hierarchy.
     human.rotation.x = Math.PI;
     human.updateMatrixWorld(true);
 
@@ -93,15 +90,14 @@ loader.load(
       return;
     }
 
-    const targetHeight = 1.78;
-    human.scale.setScalar(targetHeight / size.y);
+    human.scale.setScalar(1.78 / size.y);
     human.updateMatrixWorld(true);
 
     const fitted = new THREE.Box3().setFromObject(human);
-    const fittedCenter = fitted.getCenter(new THREE.Vector3());
+    const center = fitted.getCenter(new THREE.Vector3());
     human.position.y -= fitted.min.y;
-    human.position.x -= fittedCenter.x;
-    human.position.z -= fittedCenter.z;
+    human.position.x -= center.x;
+    human.position.z -= center.z;
     human.updateMatrixWorld(true);
 
     let meshCount = 0;
@@ -112,11 +108,9 @@ loader.load(
         obj.castShadow = true;
         obj.receiveShadow = true;
         obj.frustumCulled = false;
-        if (obj.material) {
-          const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
-          for (const mat of materials) {
-            if ('roughness' in mat) mat.roughness = Math.min(0.82, Math.max(0.28, mat.roughness));
-          }
+        const mats = obj.material ? (Array.isArray(obj.material) ? obj.material : [obj.material]) : [];
+        for (const mat of mats) {
+          if ('roughness' in mat) mat.roughness = Math.min(0.82, Math.max(0.28, mat.roughness));
         }
       }
       if (obj.isBone) boneCount++;
@@ -152,7 +146,7 @@ loader.load(
   },
   err => {
     console.error('LIFE EMPIRE human base load failed', err);
-    showError('HUMAN BASE FAILED TO LOAD  •  PROXY ERROR');
+    showError('HUMAN BASE FAILED TO LOAD  •  SOURCE/NETWORK ERROR');
   }
 );
 
