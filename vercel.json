@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/human-base.glb",
+      "destination": "https://www.innerscene.com/api/library/human-base-mesh-with-editable-53-bone-rig-8e7c8ab1/download"
+    }
+  ]
+}
