@@ -4,9 +4,9 @@ import { MarchingCubes } from 'https://cdn.jsdelivr.net/npm/three@0.180.0/exampl
 const app = document.querySelector('#app');
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a0c0f);
-scene.fog = new THREE.Fog(0x0a0c0f, 8, 26);
+scene.fog = new THREE.Fog(0x0a0c0f, 9, 28);
 
-const camera = new THREE.PerspectiveCamera(32, innerWidth / innerHeight, 0.05, 100);
+const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.05, 100);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
@@ -18,12 +18,12 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 app.appendChild(renderer.domElement);
 
 scene.add(new THREE.HemisphereLight(0xe7e0d6, 0x151a20, 2.1));
-const key = new THREE.DirectionalLight(0xfff8ee, 3.2);
+const key = new THREE.DirectionalLight(0xfff8ee, 3.0);
 key.position.set(3.5, 6.5, 4.5);
 key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
 scene.add(key);
-const rim = new THREE.DirectionalLight(0x9fb4cc, 1.1);
+const rim = new THREE.DirectionalLight(0x9fb4cc, 1.0);
 rim.position.set(-4, 4, -3);
 scene.add(rim);
 
@@ -35,8 +35,8 @@ floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
 scene.add(floor);
 
-// STEP 1: one continuous clay surface. No boxes, spheres, capsules or mannequin parts.
-// The field is intentionally larger than the character so the anatomy is never clipped.
+// STEP 1: one continuous human base surface.
+// This pass is about believable human proportions and silhouette before sculpting.
 const clay = new THREE.MeshStandardMaterial({
   color: 0xb8a99c,
   roughness: 0.82,
@@ -44,10 +44,10 @@ const clay = new THREE.MeshStandardMaterial({
   flatShading: false
 });
 
-const RES = 64;
-const FIELD_W = 2.0;
-const FIELD_H = 3.8;
-const FIELD_D = 1.0;
+const RES = 72;
+const FIELD_W = 1.65;
+const FIELD_H = 3.65;
+const FIELD_D = 0.95;
 const body = new MarchingCubes(RES, clay, false, false);
 body.isolation = 0;
 body.position.set(0, FIELD_H / 2, 0);
@@ -75,7 +75,7 @@ function capsuleSdf(x, y, z, ax, ay, az, bx, by, bz, r) {
   return Math.sqrt(dx * dx + dy * dy + dz * dz) - r;
 }
 
-function smoothMin(a, b, k = 0.075) {
+function smoothMin(a, b, k = 0.065) {
   const h = Math.max(k - Math.abs(a - b), 0) / k;
   return Math.min(a, b) - h * h * k * 0.25;
 }
@@ -83,45 +83,58 @@ function smoothMin(a, b, k = 0.075) {
 function humanSdf(x, y, z) {
   const parts = [];
 
+  // Feet, shins, knees and thighs: long human leg proportions, not cylinders.
   for (const s of [-1, 1]) {
-    parts.push(ellipsoidSdf(x, y, z, s * 0.18, 0.10, 0.075, 0.12, 0.11, 0.22));
-    parts.push(capsuleSdf(x, y, z, s * 0.18, 0.18, 0, s * 0.18, 0.88, 0, 0.105));
-    parts.push(ellipsoidSdf(x, y, z, s * 0.18, 0.90, -0.01, 0.125, 0.12, 0.105));
-    parts.push(capsuleSdf(x, y, z, s * 0.18, 0.96, 0, s * 0.17, 1.62, 0.005, 0.145));
-    parts.push(ellipsoidSdf(x, y, z, s * 0.17, 1.63, 0.12, 0.20, 0.25, 0.14));
-    parts.push(ellipsoidSdf(x, y, z, s * 0.18, 2.22, -0.18, 0.17, 0.20, 0.10));
+    parts.push(ellipsoidSdf(x, y, z, s * 0.105, 0.105, 0.075, 0.12, 0.09, 0.22));
+    parts.push(capsuleSdf(x, y, z, s * 0.105, 0.14, 0, s * 0.105, 0.78, 0, 0.105));
+    parts.push(ellipsoidSdf(x, y, z, s * 0.105, 0.80, 0, 0.125, 0.13, 0.12));
+    parts.push(capsuleSdf(x, y, z, s * 0.105, 0.86, 0, s * 0.13, 1.48, 0.005, 0.145));
+    parts.push(ellipsoidSdf(x, y, z, s * 0.14, 1.45, 0.01, 0.17, 0.20, 0.16));
   }
 
-  // Pelvis, abdomen and rib cage.
-  parts.push(ellipsoidSdf(x, y, z, 0, 1.58, 0.015, 0.38, 0.29, 0.24));
-  parts.push(ellipsoidSdf(x, y, z, 0, 1.87, 0.00, 0.31, 0.34, 0.21));
-  parts.push(ellipsoidSdf(x, y, z, 0, 2.20, 0.00, 0.29, 0.48, 0.20));
-  parts.push(ellipsoidSdf(x, y, z, 0, 2.52, 0.00, 0.42, 0.43, 0.27));
-  parts.push(ellipsoidSdf(x, y, z, 0, 2.78, 0.00, 0.34, 0.25, 0.22));
+  // Pelvis and hips. Glute volume sits subtly behind the pelvis instead of forming a giant ball.
+  parts.push(ellipsoidSdf(x, y, z, 0, 1.50, 0.00, 0.32, 0.27, 0.21));
+  parts.push(ellipsoidSdf(x, y, z, -0.16, 1.48, -0.08, 0.19, 0.22, 0.16));
+  parts.push(ellipsoidSdf(x, y, z, 0.16, 1.48, -0.08, 0.19, 0.22, 0.16));
 
-  // Neck and head.
-  parts.push(capsuleSdf(x, y, z, 0, 2.74, 0, 0, 2.94, 0, 0.135));
-  parts.push(ellipsoidSdf(x, y, z, 0, 3.17, 0.01, 0.225, 0.30, 0.20));
-  parts.push(ellipsoidSdf(x, y, z, 0, 2.99, -0.01, 0.195, 0.16, 0.17));
-  parts.push(ellipsoidSdf(x, y, z, 0, 3.02, -0.13, 0.14, 0.115, 0.075));
+  // Waist, abdomen and rib cage: a clear natural taper from pelvis to chest.
+  parts.push(ellipsoidSdf(x, y, z, 0, 1.78, 0.00, 0.255, 0.30, 0.175));
+  parts.push(ellipsoidSdf(x, y, z, 0, 2.08, 0.00, 0.285, 0.33, 0.19));
+  parts.push(ellipsoidSdf(x, y, z, 0, 2.38, 0.00, 0.34, 0.34, 0.215));
 
-  // Shoulders, arms, palms and simplified fingers in a relaxed A-pose.
+  // Subtle chest volumes, integrated into the rib cage rather than oversized separate spheres.
+  parts.push(ellipsoidSdf(x, y, z, -0.145, 2.43, 0.135, 0.145, 0.16, 0.105));
+  parts.push(ellipsoidSdf(x, y, z,  0.145, 2.43, 0.135, 0.145, 0.16, 0.105));
+
+  // Shoulders, neck and head.
   for (const s of [-1, 1]) {
-    parts.push(ellipsoidSdf(x, y, z, s * 0.40, 2.69, 0, 0.19, 0.18, 0.18));
-    parts.push(capsuleSdf(x, y, z, s * 0.48, 2.67, 0, s * 0.72, 2.34, 0, 0.125));
-    parts.push(capsuleSdf(x, y, z, s * 0.72, 2.34, 0, s * 0.78, 1.91, 0, 0.095));
-    parts.push(ellipsoidSdf(x, y, z, s * 0.78, 1.82, 0, 0.105, 0.14, 0.09));
+    parts.push(ellipsoidSdf(x, y, z, s * 0.335, 2.53, 0, 0.16, 0.15, 0.16));
+    parts.push(capsuleSdf(x, y, z, s * 0.43, 2.52, 0, s * 0.64, 2.24, 0, 0.11));
+    parts.push(capsuleSdf(x, y, z, s * 0.64, 2.24, 0, s * 0.70, 1.91, 0, 0.085));
+    parts.push(ellipsoidSdf(x, y, z, s * 0.70, 1.83, 0, 0.10, 0.125, 0.085));
+
+    // Hand mass first; fingers remain simple until the sculpt/retopology stages.
+    parts.push(ellipsoidSdf(x, y, z, s * 0.70, 1.70, 0.00, 0.085, 0.15, 0.065));
     for (let i = -1; i <= 1; i++) {
-      parts.push(capsuleSdf(x, y, z, s * (0.75 + i * 0.018), 1.77, -0.015 + i * 0.018, s * (0.73 + i * 0.018), 1.62, -0.018 + i * 0.018, 0.032));
+      parts.push(capsuleSdf(
+        x, y, z,
+        s * (0.68 + i * 0.016), 1.63, -0.008 + i * 0.015,
+        s * (0.67 + i * 0.016), 1.50, -0.012 + i * 0.015,
+        0.022
+      ));
     }
   }
+
+  parts.push(capsuleSdf(x, y, z, 0, 2.62, 0, 0, 2.84, 0, 0.105));
+  parts.push(ellipsoidSdf(x, y, z, 0, 3.10, 0.015, 0.205, 0.27, 0.18));
+  parts.push(ellipsoidSdf(x, y, z, 0, 2.94, 0.005, 0.18, 0.15, 0.155));
+  parts.push(ellipsoidSdf(x, y, z, 0, 2.90, 0.135, 0.10, 0.09, 0.07));
 
   let d = parts[0];
   for (let i = 1; i < parts.length; i++) d = smoothMin(d, parts[i]);
   return d;
 }
 
-// Marching Cubes uses a centered local cube. Map it directly to a 2m x 3.8m x 1m inspection volume.
 for (let z = 0; z < RES; z++) {
   for (let y = 0; y < RES; y++) {
     for (let x = 0; x < RES; x++) {
@@ -140,12 +153,12 @@ body.geometry.computeVertexNormals();
 
 const wire = new THREE.LineSegments(
   new THREE.WireframeGeometry(body.geometry),
-  new THREE.LineBasicMaterial({ color: 0x25201d, transparent: true, opacity: 0.15 })
+  new THREE.LineBasicMaterial({ color: 0x25201d, transparent: true, opacity: 0.12 })
 );
 body.add(wire);
 
 const shadow = new THREE.Mesh(
-  new THREE.CircleGeometry(0.85, 64),
+  new THREE.CircleGeometry(0.72, 64),
   new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28 })
 );
 shadow.rotation.x = -Math.PI / 2;
@@ -154,13 +167,13 @@ scene.add(shadow);
 
 let yaw = 0;
 let pitch = 0.02;
-let distance = 5.25;
+let distance = 5.7;
 let dragging = false;
 let lastX = 0;
 let lastY = 0;
 
 function updateCamera() {
-  const targetY = 1.65;
+  const targetY = 1.72;
   camera.position.set(
     Math.sin(yaw) * Math.cos(pitch) * distance,
     targetY + Math.sin(pitch) * distance,
@@ -188,7 +201,7 @@ renderer.domElement.addEventListener('pointermove', (event) => {
 renderer.domElement.addEventListener('pointerup', () => { dragging = false; });
 renderer.domElement.addEventListener('pointercancel', () => { dragging = false; });
 renderer.domElement.addEventListener('wheel', (event) => {
-  distance = Math.max(3.9, Math.min(7.0, distance + event.deltaY * 0.003));
+  distance = Math.max(4.2, Math.min(7.0, distance + event.deltaY * 0.003));
   updateCamera();
 }, { passive: true });
 
