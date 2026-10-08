@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+
 const SOURCE = 'https://www.innerscene.com/api/library/human-base-mesh-with-editable-53-bone-rig-8e7c8ab1/download';
 
 export default async function handler(request, response) {
@@ -18,6 +20,22 @@ export default async function handler(request, response) {
     }
 
     const bytes = new Uint8Array(await upstream.arrayBuffer());
+    const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+
+    if (new URL(request.url, 'https://life-empire-one.vercel.app').searchParams.has('check')) {
+      response.status(200);
+      response.setHeader('Content-Type', 'application/json; charset=utf-8');
+      response.setHeader('Cache-Control', 'no-store');
+      response.end(JSON.stringify({
+        ok: true,
+        bytes: bytes.byteLength,
+        contentType: upstream.headers.get('content-type'),
+        magic: Buffer.from(bytes.slice(0, 4)).toString('ascii'),
+        sha256,
+      }));
+      return;
+    }
+
     response.status(200);
     response.setHeader('Content-Type', 'model/gltf-binary');
     response.setHeader('Content-Length', String(bytes.byteLength));
