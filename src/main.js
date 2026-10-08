@@ -2,7 +2,6 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.m
 import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/loaders/GLTFLoader.js';
 
 const app = document.querySelector('#app');
-
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0b0d10);
 scene.fog = new THREE.Fog(0x0b0d10, 8, 24);
@@ -19,17 +18,14 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 app.appendChild(renderer.domElement);
 
 scene.add(new THREE.HemisphereLight(0xf2e9df, 0x11151b, 2.15));
-
 const key = new THREE.DirectionalLight(0xfff1df, 3.6);
 key.position.set(4.5, 7.5, 5.5);
 key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
 scene.add(key);
-
 const fill = new THREE.DirectionalLight(0xcbd9ee, 1.25);
 fill.position.set(-4, 4, -5);
 scene.add(fill);
-
 const rim = new THREE.DirectionalLight(0xd9e7ff, 0.75);
 rim.position.set(0, 5, -6);
 scene.add(rim);
@@ -42,11 +38,10 @@ floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
 scene.add(floor);
 
-// STEP 1 — REAL HUMAN BASE
-// Single continuous skinned human mesh. No primitive body parts are added.
-// This is the public-domain Innerscene human-base-rigged.glb built from
-// the MakeHuman/MPFB anatomical base with a 53-joint game skeleton.
-const HUMAN_URL = 'https://www.innerscene.com/api/library/human-base-mesh-with-editable-53-bone-rig-8e7c8ab1/download';
+// STEP 1 — THE USER'S REAL HUMAN BASE
+// Same human-base-rigged.glb source, served through our own same-origin API
+// proxy so the browser is never blocked by a third-party CORS policy.
+const HUMAN_URL = '/api/human';
 
 const status = document.createElement('div');
 status.textContent = 'LIFE EMPIRE  •  HUMAN BASE';
@@ -60,7 +55,7 @@ status.style.cssText = `
 app.appendChild(status);
 
 const loading = document.createElement('div');
-loading.textContent = 'LOADING REAL HUMAN BASE…';
+loading.textContent = 'LOADING REAL HUMAN BASE 0%';
 loading.style.cssText = `
   position:fixed;inset:0;display:grid;place-items:center;z-index:4;
   color:rgba(255,255,255,.82);font:600 13px/1.2 system-ui,sans-serif;
@@ -72,31 +67,34 @@ let human = null;
 let mixer = null;
 
 function showError(message) {
+  console.error('[LIFE EMPIRE]', message);
   loading.textContent = message;
   loading.style.color = '#ffb4a8';
   status.textContent = 'LIFE EMPIRE  •  HUMAN BASE ERROR';
 }
 
 const loader = new GLTFLoader();
-loader.setCrossOrigin('anonymous');
 loader.load(
   HUMAN_URL,
   gltf => {
     human = gltf.scene;
     human.name = 'LIFE EMPIRE — Real Human Base';
 
-    // Blender exported this file in Z-up coordinates. Rotate the entire
-    // existing skinned hierarchy once; never rebuild the body from parts.
+    // The uploaded GLB is exported from Blender with the human standing
+    // along +Y in source coordinates. Rotate the existing skinned hierarchy
+    // as one object; never rebuild the body from primitives.
     human.rotation.x = Math.PI;
     human.updateMatrixWorld(true);
 
-    // Normalize the original 1.68 m class human to a clean 1.78 m game scale
-    // and place both feet on the floor after the orientation correction.
     const box = new THREE.Box3().setFromObject(human);
     const size = box.getSize(new THREE.Vector3());
+    if (!Number.isFinite(size.y) || size.y <= 0) {
+      showError('HUMAN BASE CHECK FAILED  •  INVALID SIZE');
+      return;
+    }
+
     const targetHeight = 1.78;
-    const scale = targetHeight / size.y;
-    human.scale.setScalar(scale);
+    human.scale.setScalar(targetHeight / size.y);
     human.updateMatrixWorld(true);
 
     const fitted = new THREE.Box3().setFromObject(human);
@@ -110,9 +108,10 @@ loader.load(
     let boneCount = 0;
     human.traverse(obj => {
       if (obj.isMesh) {
-        meshCount += 1;
+        meshCount++;
         obj.castShadow = true;
         obj.receiveShadow = true;
+        obj.frustumCulled = false;
         if (obj.material) {
           const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
           for (const mat of materials) {
@@ -120,11 +119,11 @@ loader.load(
           }
         }
       }
-      if (obj.isBone) boneCount += 1;
+      if (obj.isBone) boneCount++;
     });
 
-    if (meshCount !== 1) {
-      showError(`HUMAN BASE CHECK FAILED  •  ${meshCount} MESHES`);
+    if (meshCount !== 1 || boneCount < 50) {
+      showError(`HUMAN BASE CHECK FAILED  •  ${meshCount} MESH / ${boneCount} BONES`);
       return;
     }
 
@@ -148,16 +147,12 @@ loader.load(
     updateCamera();
   },
   xhr => {
-    if (xhr.total) {
-      const pct = Math.round((xhr.loaded / xhr.total) * 100);
-      loading.textContent = `LOADING REAL HUMAN BASE  ${pct}%`;
-    } else {
-      loading.textContent = 'LOADING REAL HUMAN BASE…';
-    }
+    if (xhr.total) loading.textContent = `LOADING REAL HUMAN BASE  ${Math.round((xhr.loaded / xhr.total) * 100)}%`;
+    else loading.textContent = 'LOADING REAL HUMAN BASE…';
   },
   err => {
     console.error('LIFE EMPIRE human base load failed', err);
-    showError('HUMAN BASE FAILED TO LOAD  •  CHECK NETWORK');
+    showError('HUMAN BASE FAILED TO LOAD  •  PROXY ERROR');
   }
 );
 
