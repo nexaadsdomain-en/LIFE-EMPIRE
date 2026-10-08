@@ -42,11 +42,11 @@ floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
 scene.add(floor);
 
-// STEP 1 — REAL HUMAN BASE MESH
-// This is a single continuous MakeHuman/MPFB2 anatomical body with real
-// production-style topology and a real 52-bone humanoid skeleton.
-// It replaces the previous procedural blob/SDF body completely.
-const HUMAN_URL = 'https://raw.githubusercontent.com/nirholas/three.ws/main/public/avatars/parametric-base.glb';
+// STEP 1 — REAL HUMAN BASE
+// Single continuous skinned human mesh. No primitive body parts are added.
+// This is the public-domain Innerscene human-base-rigged.glb built from
+// the MakeHuman/MPFB anatomical base with a 53-joint game skeleton.
+const HUMAN_URL = 'https://www.innerscene.com/api/library/human-base-mesh-with-editable-53-bone-rig-8e7c8ab1/download';
 
 const status = document.createElement('div');
 status.textContent = 'LIFE EMPIRE  •  HUMAN BASE';
@@ -60,7 +60,7 @@ status.style.cssText = `
 app.appendChild(status);
 
 const loading = document.createElement('div');
-loading.textContent = 'LOADING HUMAN BASE…';
+loading.textContent = 'LOADING REAL HUMAN BASE…';
 loading.style.cssText = `
   position:fixed;inset:0;display:grid;place-items:center;z-index:4;
   color:rgba(255,255,255,.82);font:600 13px/1.2 system-ui,sans-serif;
@@ -70,28 +70,47 @@ app.appendChild(loading);
 
 let human = null;
 let mixer = null;
-let idle = null;
-let skeleton = null;
+
+function showError(message) {
+  loading.textContent = message;
+  loading.style.color = '#ffb4a8';
+  status.textContent = 'LIFE EMPIRE  •  HUMAN BASE ERROR';
+}
 
 const loader = new GLTFLoader();
+loader.setCrossOrigin('anonymous');
 loader.load(
   HUMAN_URL,
   gltf => {
     human = gltf.scene;
     human.name = 'LIFE EMPIRE — Real Human Base';
 
-    // The source is Y-up and faces +Z. Keep it as one mesh hierarchy;
-    // do not add primitive body parts on top of it.
+    // Blender exported this file in Z-up coordinates. Rotate the entire
+    // existing skinned hierarchy once; never rebuild the body from parts.
+    human.rotation.x = Math.PI;
+    human.updateMatrixWorld(true);
+
+    // Normalize the original 1.68 m class human to a clean 1.78 m game scale
+    // and place both feet on the floor after the orientation correction.
     const box = new THREE.Box3().setFromObject(human);
     const size = box.getSize(new THREE.Vector3());
-    const center = box.getCenter(new THREE.Vector3());
     const targetHeight = 1.78;
     const scale = targetHeight / size.y;
     human.scale.setScalar(scale);
-    human.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
+    human.updateMatrixWorld(true);
 
+    const fitted = new THREE.Box3().setFromObject(human);
+    const fittedCenter = fitted.getCenter(new THREE.Vector3());
+    human.position.y -= fitted.min.y;
+    human.position.x -= fittedCenter.x;
+    human.position.z -= fittedCenter.z;
+    human.updateMatrixWorld(true);
+
+    let meshCount = 0;
+    let boneCount = 0;
     human.traverse(obj => {
       if (obj.isMesh) {
+        meshCount += 1;
         obj.castShadow = true;
         obj.receiveShadow = true;
         if (obj.material) {
@@ -101,25 +120,19 @@ loader.load(
           }
         }
       }
-      if (obj.isBone) skeleton = obj.parent?.isSkeleton ? obj.parent : skeleton;
+      if (obj.isBone) boneCount += 1;
     });
 
-    // Keep the original rig/skin intact. Only a restrained idle pose is driven.
-    const bones = [];
-    human.traverse(obj => { if (obj.isBone) bones.push(obj); });
-    const findBone = names => bones.find(b => names.includes(b.name));
-    const spine = findBone(['mixamorig:Spine', 'mixamorig:Spine1', 'Spine', 'spine']);
-    const chest = findBone(['mixamorig:Spine2', 'Spine2', 'chest']);
-    const neck = findBone(['mixamorig:Neck', 'Neck', 'neck']);
+    if (meshCount !== 1) {
+      showError(`HUMAN BASE CHECK FAILED  •  ${meshCount} MESHES`);
+      return;
+    }
 
     if (gltf.animations?.length) {
       mixer = new THREE.AnimationMixer(human);
-      const preferred = gltf.animations.find(a => /idle|breath|stand/i.test(a.name)) || gltf.animations[0];
-      idle = mixer.clipAction(preferred);
-      idle.play();
+      mixer.clipAction(gltf.animations[0]).play();
     }
 
-    human.userData.idleBones = { spine, chest, neck };
     scene.add(human);
 
     const shadow = new THREE.Mesh(
@@ -131,19 +144,20 @@ loader.load(
     scene.add(shadow);
 
     loading.remove();
-    status.textContent = 'LIFE EMPIRE  •  REAL HUMAN BASE  •  STEP 1';
+    status.textContent = `LIFE EMPIRE  •  REAL HUMAN BASE  •  STEP 1  •  ${boneCount} BONES`;
     updateCamera();
   },
   xhr => {
     if (xhr.total) {
       const pct = Math.round((xhr.loaded / xhr.total) * 100);
-      loading.textContent = `LOADING HUMAN BASE  ${pct}%`;
+      loading.textContent = `LOADING REAL HUMAN BASE  ${pct}%`;
+    } else {
+      loading.textContent = 'LOADING REAL HUMAN BASE…';
     }
   },
   err => {
-    console.error(err);
-    loading.textContent = 'HUMAN BASE FAILED TO LOAD';
-    status.textContent = 'LIFE EMPIRE  •  HUMAN BASE ERROR';
+    console.error('LIFE EMPIRE human base load failed', err);
+    showError('HUMAN BASE FAILED TO LOAD  •  CHECK NETWORK');
   }
 );
 
@@ -155,7 +169,7 @@ let lastX = 0;
 let lastY = 0;
 
 function updateCamera() {
-  const targetY = 0.93;
+  const targetY = 0.90;
   camera.position.set(
     Math.sin(yaw) * Math.cos(pitch) * distance,
     targetY + Math.sin(pitch) * distance,
